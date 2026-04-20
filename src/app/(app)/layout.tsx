@@ -2,6 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth, signOut } from "@/lib/auth";
 
+// Authenticated routes depend on the request's session cookie; they can
+// never be statically prerendered, so don't try.
+export const dynamic = "force-dynamic";
+
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/finances", label: "Finances" },
