@@ -1,0 +1,320 @@
+=====================================================================
+ASSISTANT — SETUP & DEPLOY TODO
+=====================================================================
+
+Work top to bottom. Each section ends with a checkpoint you can verify
+before moving on. If something fails, fix it before continuing — don't
+skip ahead.
+
+=====================================================================
+PART 1 — ACCOUNT SIGNUPS (do these first, ~20 min total)
+=====================================================================
+
+[ ] 1. Railway account
+    - Go to https://railway.com and sign up (GitHub login is fine)
+    - Enable 2FA immediately (Settings > Account > 2FA)
+
+[ ] 2. Postgres database
+    Pick one:
+    (a) Railway-hosted Postgres (recommended; lives next to the app):
+        - Inside Railway: New Project > Provision Postgres
+        - Copy the DATABASE_URL from the Postgres service's Variables tab
+    (b) Neon (alternative, equally good free tier):
+        - Go to https://neon.tech > sign up > create project
+        - Copy the connection string marked "pooled"
+    - Save the string somewhere safe — you'll paste it into .env.local
+      and into Railway env vars later.
+
+[ ] 3. Anthropic account (Claude's brain)
+    - Go to https://console.anthropic.com
+    - Enable 2FA
+    - Billing > add a card and set a monthly spend limit ($20 is plenty
+      for personal use; raise if you text the assistant a ton)
+    - API Keys > Create Key > copy it (starts with sk-ant-)
+
+[ ] 4. Plaid account (bank connection)
+    - Go to https://dashboard.plaid.com/signup
+    - Enable 2FA
+    - On the dashboard, confirm you're in "Development" environment
+    - Team Settings > Keys > copy CLIENT_ID and DEVELOPMENT SECRET
+    - Products > confirm "Transactions" and "Accounts" are enabled
+    - Do NOT enable Transfer, Auth, or Payment Initiation — read-only only
+
+[ ] 5. Twilio (you said this is ready — quick verification)
+    - Confirm 2FA is on
+    - Confirm your A2P 10DLC brand + campaign are APPROVED (not pending).
+      If still pending, SMS won't send; wait to finish deploy until it's
+      approved.
+    - Console > Phone Numbers > note your Twilio number (E.164 format,
+      starts with +1)
+    - Console > Account > Auth Token > copy Account SID and Auth Token
+    - Note your personal phone number in E.164 format (+1XXXXXXXXXX)
+
+[ ] 6. Email provider for magic-link sign-in
+    - Recommended: Resend (https://resend.com)
+    - Sign up, enable 2FA
+    - Add a domain (or use their test domain for now) and verify DNS
+    - API Keys > create a key > copy it (starts with re_)
+    - If you use your own domain: EMAIL_FROM="assistant@yourdomain.com"
+      If using resend test: EMAIL_FROM="onboarding@resend.dev"
+
+CHECKPOINT 1: You have copied and saved:
+  DATABASE_URL, ANTHROPIC_API_KEY, PLAID_CLIENT_ID, PLAID_SECRET,
+  TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER,
+  OWNER_PHONE_NUMBER, Resend API key, EMAIL_FROM.
+
+=====================================================================
+PART 2 — GENERATE LOCAL SECRETS (2 min)
+=====================================================================
+
+[ ] 7. Open a terminal in C:\Users\codys\Documents\Sites\assistant
+    and run (one at a time, save each output):
+
+    AUTH_SECRET:
+      node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+
+    ENCRYPTION_KEY (for Plaid access tokens at rest):
+      node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+
+    CRON_SECRET (protects scheduled job endpoints):
+      node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+    Treat these like passwords. Never commit. Never paste in chat.
+
+=====================================================================
+PART 3 — LOCAL DEVELOPMENT (first run, ~10 min)
+=====================================================================
+
+[ ] 8. Create .env.local by copying the example:
+      cp .env.example .env.local
+
+[ ] 9. Open .env.local in your editor and fill in every value.
+      ALLOWED_EMAILS must be your real email (lowercase), e.g.:
+        ALLOWED_EMAILS="cody@vyrellabs.com"
+
+[ ] 10. Push the DB schema:
+      npm run db:push
+
+    Expected output: a few "CREATE TABLE" messages, no errors.
+    If it fails, verify DATABASE_URL is correct and the DB is reachable.
+
+[ ] 11. Start the dev server:
+      npm run dev
+
+    Visit http://localhost:3000
+
+[ ] 12. Sign in:
+    - Enter your email (must match ALLOWED_EMAILS)
+    - Check email (and spam folder) for the magic link
+    - Click it — you should land on /dashboard
+
+    If you never receive the email: check the Resend dashboard for
+    delivery status. If it says "sent" but you didn't get it, check spam.
+
+[ ] 13. Complete setup at /setup:
+    - Zip: 46303
+    - Phone: your personal number in E.164 (e.g. +1XXXXXXXXXX)
+    - Pay cadence: your actual cadence
+    - Monthly income estimate: rough number
+    - Click Save
+    - Click "Link a bank" > step through Plaid Link > pick your bank,
+      log in through their portal (Plaid handles credentials, we never
+      see them)
+
+CHECKPOINT 3: The dashboard shows real balances and recent transactions
+pulled from Plaid. If yes, local is working.
+
+=====================================================================
+PART 4 — DEPLOY TO RAILWAY (~15 min)
+=====================================================================
+
+[ ] 14. Push your code to GitHub (if you haven't already):
+    - Create a private repo on GitHub
+    - cd C:\Users\codys\Documents\Sites\assistant
+    - git remote add origin <your repo URL>
+    - git add .
+    - git commit -m "initial scaffold"
+    - git push -u origin main
+
+    Double-check before pushing: .env.local is in .gitignore and NOT
+    included. Run "git status" and confirm .env.local is not listed.
+
+[ ] 15. In Railway, create a new project from your GitHub repo:
+    - New Project > Deploy from GitHub repo > pick it
+    - Railway detects Next.js automatically and starts building
+
+[ ] 16. If you haven't already (Part 1 step 2a), add Postgres:
+    - In the same Railway project: + New > Database > PostgreSQL
+    - Open the Postgres service > Variables > copy DATABASE_URL
+
+[ ] 17. Set environment variables on the APP service (not Postgres):
+    - Click the app service > Variables > Raw Editor
+    - Paste every non-empty value from your .env.local, EXCEPT:
+      * AUTH_URL = https://<your-railway-domain>
+        (Railway shows the generated domain under Settings > Networking;
+         or use a custom domain if you have one)
+      * APP_URL = same as AUTH_URL
+      * DATABASE_URL = the one from the Postgres service (copy the
+        ${{Postgres.DATABASE_URL}} reference for auto-updating)
+      * NODE_ENV = production (Railway sets this but confirm)
+    - Click Deploy to apply
+
+[ ] 18. Wait for the build to complete. If it fails:
+    - Read the build log, find the error
+    - Most common: missing env var, or DATABASE_URL unreachable
+    - Fix in Variables, redeploy
+
+[ ] 19. After deploy succeeds, visit your Railway domain in a browser.
+    You should see the login page. Sign in with the same email you
+    used locally. You should land on /dashboard with your data intact
+    (same DB if you used Railway Postgres for both).
+
+    If you used a separate local DB, re-do Setup on the deployed site.
+
+=====================================================================
+PART 5 — WIRE TWILIO AND CRON (~10 min)
+=====================================================================
+
+[ ] 20. Twilio webhook:
+    - Twilio Console > Phone Numbers > Active Numbers > your number
+    - Messaging Configuration:
+        "A message comes in" webhook URL:
+          https://<your-railway-domain>/api/twilio/incoming
+        Method: HTTP POST
+    - Save
+
+[ ] 21. Test the Twilio webhook:
+    - Send a text from your personal phone to your Twilio number:
+        "what's my balance?"
+    - Within ~10 seconds you should get a reply listing your accounts
+    - If no reply: Twilio Console > Monitor > Messaging Logs shows what
+      happened. A 403 means signature validation failed. A 500 means
+      the app errored — check Railway logs.
+
+[ ] 22. Railway cron jobs (Settings > Cron inside the app service):
+
+    Job 1 — daily proactive check (8am US Central):
+      Schedule:  0 13 * * *
+      Command:
+        curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" \
+          "$APP_URL/api/jobs/daily-check"
+
+    Job 2 — Plaid sync (every 6 hours):
+      Schedule:  0 */6 * * *
+      Command:
+        curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" \
+          "$APP_URL/api/jobs/plaid-sync"
+
+[ ] 23. Manually trigger the daily-check once to confirm it works:
+    From your local terminal:
+      curl -X POST \
+        -H "Authorization: Bearer <your CRON_SECRET>" \
+        https://<your-railway-domain>/api/jobs/daily-check
+    Expected: 200 JSON response. If nothing is noteworthy, you won't
+    get a text — that's intentional. Force a test text by temporarily
+    setting a bill due tomorrow in the DB (or just trust the flow).
+
+=====================================================================
+PART 6 — ACCOUNT-LEVEL SECURITY (do this the same day, ~15 min)
+=====================================================================
+
+The code is hardened, but the accounts backing it are the real
+attack surface. Lock them down.
+
+[ ] 24. Confirm 2FA is ON for every account:
+    - Railway
+    - Anthropic
+    - Plaid
+    - Twilio
+    - Resend (or whatever email provider)
+    - GitHub (your repo is here)
+    - Your email account (where magic links arrive)
+    - Your actual bank
+
+[ ] 25. Use a password manager. Unique strong passwords for all the
+    above. Do not reuse.
+
+[ ] 26. Rotate a secret if you ever paste it somewhere it shouldn't be
+    (chat, email, screenshot, a commit). Rotating means:
+    - Generate a new one (see Part 2)
+    - Update Railway env vars
+    - For Plaid access tokens: re-link your bank in /setup
+      (this creates a fresh token under the new key)
+    - Redeploy
+
+[ ] 27. Don't publicize the Railway URL. It's a personal tool. No
+    marketing, no public links. Keep the blast radius small.
+
+[ ] 28. If you add a custom domain, enable HSTS preload submission at
+    https://hstspreload.org once you've confirmed the site works.
+
+=====================================================================
+USING IT DAY TO DAY
+=====================================================================
+
+- Check balances / bills / recent transactions: open the Dashboard, or
+  text the assistant ("what's my balance?", "what bills this week?").
+
+- Ask affordability questions:
+    "can I squeeze $500 for concert tickets this month?"
+  Claude pulls balances, upcoming bills, and spending pace to answer.
+
+- Log cash or gift money that won't hit your bank:
+    "spent $12 cash on lunch at Chipotle"
+    "got $200 from mom for my birthday"
+  Claude auto-logs it and replies with a one-line confirmation. These
+  entries roll up into budgets alongside Plaid transactions.
+
+  To undo the last manual entry, text:
+    "undo that" or "delete that last one"
+
+  You can also view, add, edit, or delete manual entries manually at
+  /manual in the web UI.
+
+- Proactive texts: the daily cron at 8am US Central scans for bills due
+  soon, categories over budget, and unusual transactions. It only texts
+  you when there's something actually worth saying.
+
+=====================================================================
+ONGOING / MAINTENANCE
+=====================================================================
+
+[ ] Monthly: review Twilio + Anthropic usage and cost.
+[ ] Monthly: check Plaid dashboard for any failed syncs (Items > Health).
+[ ] Quarterly: re-link your bank to rotate the Plaid access token.
+[ ] Whenever: rotate AUTH_SECRET, CRON_SECRET, and ENCRYPTION_KEY if
+    you have any suspicion of a leak. IMPORTANT: rotating ENCRYPTION_KEY
+    invalidates existing Plaid tokens in the DB — you'll need to
+    re-link banks after rotating. Plan for it.
+
+=====================================================================
+WHAT THE CODE ALREADY DOES FOR YOU
+=====================================================================
+
+- Plaid access tokens encrypted with AES-256-GCM at rest
+- Hard sign-in allow-list (ALLOWED_EMAILS); everyone else is rejected
+- Strict phone allow-list for SMS; unregistered numbers get silent
+  responses (no existence leak)
+- Twilio webhook signature validation in production
+- Rate limiting on chat + webhook + auth endpoints
+- Constant-time secret comparison on cron endpoints
+- Security headers: HSTS, CSP, X-Frame-Options, X-Content-Type-Options,
+  Referrer-Policy, Permissions-Policy
+- Redaction of sensitive fields in error logs
+- Zod validation on all JSON API input
+- Drizzle ORM (parameterized queries — no SQL injection)
+- HttpOnly, Secure, SameSite cookies (Auth.js defaults in production)
+- No "dev bypass" paths — the same auth runs locally and in production
+
+=====================================================================
+WHEN YOU GET STUCK
+=====================================================================
+
+- Build fails on Railway: read the full build log, not just the summary
+- "Unauthorized" on sign-in: your email isn't in ALLOWED_EMAILS
+- Magic link never arrives: check Resend dashboard > Logs
+- Plaid Link won't open: browser console for CSP violations (might need
+  to adjust next.config.ts if Plaid adds new domains)
+- Twilio replies are generic/broken: check Railway logs during a test
+- Cron does nothing: verify the CRON_SECRET env var is set on Railway
+  and that the cron commands reference $CRON_SECRET (with the $)
